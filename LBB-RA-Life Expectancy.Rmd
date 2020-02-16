@@ -1,0 +1,303 @@
+---
+title: "Life Expectancy - Regression Analysis"
+author: "Yevonnael Andrew"
+date: "2/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(corrplot)
+library(leaps)
+library(ggpubr)
+library(GGally)
+library(DescTools)
+```
+
+```{r}
+le_data <- read_csv("https://raw.githubusercontent.com/JNYH/Project-Luther/master/df3.csv")
+```
+
+```{r}
+head(le_data)
+```
+
+```{r}
+summary(le_data)
+```
+
+```{r}
+sapply(le_data, function(y) sum(length(which(is.na(y)))))
+```
+
+```{r}
+cor_mat <- cor(le_data[,-1])
+head(cor_mat[1:5, 1:5])
+```
+
+```{r, fig.width=12}
+corrplot(cor_mat, method="pie", type="lower", addCoef.col = "black")
+```
+
+```{r}
+le_data_nc <- le_data[,-1]
+```
+
+```{r, fig.width=12, warning=FALSE, message=FALSE}
+ggpairs(le_data_nc)
+```
+
+Model with the most significant variable
+```{r}
+model_single <- lm(`Life Expectancy` ~ `Birth Rate`, data = le_data_nc)
+summary(model_single) # R-squared:  0.5995
+```
+
+Model with all variable included
+```{r}
+model_full <- lm(`Life Expectancy` ~ ., data = le_data_nc)
+summary(model_full) # Adjusted R-squared:  0.7369
+```
+
+## Feature Selection
+
+1. Stepwise Backward
+```{r}
+model_bw <- step(model_full, direction = "backward")
+summary(model_bw) # Adjusted R-squared:  0.7404
+```
+
+2. Stepwise Forward
+```{r}
+model_none <- lm(`Life Expectancy` ~ 1, data = le_data_nc)
+model_fw <- step(model_none, scope = list(lower = model_none, upper = model_full), direction = "forward")
+summary(model_fw) # Adjusted R-squared:  0.7404
+```
+
+3. Stepwise Both
+```{r}
+model_bo <- step(model_none, scope = list(lower = model_none, upper = model_full), direction = "both")
+summary(model_bo) # Adjusted R-Squared = 0.7404
+```
+
+## Using regsubset
+
+```{r}
+model_rss <- regsubsets(`Life Expectancy` ~ ., data = le_data_nc, nbest = 2)
+plot(model_rss, scale = "adjr2")
+```
+
+```{r}
+sum_model_rss <- summary(model_rss)
+names(sum_model_rss)
+```
+
+```{r}
+which.max(sum_model_rss$adjr2)
+```
+
+```{r}
+which.min(sum_model_rss$bic)
+```
+
+```{r}
+sum_model_rss$which[9,]
+```
+
+```{r}
+sum_model_rss$which[5,]
+```
+
+```{r}
+lm_model_rss_r2 <- lm(`Life Expectancy` ~ `Birth Rate` + EPI + `Health Expenditure` + `Pop Density` + `Stroke Rate`, data = le_data)
+summary(lm_model_rss_r2) # Adjusted R-squared:  0.7406
+```
+
+```{r}
+lm_model_rss_bic <- lm(`Life Expectancy` ~ `Birth Rate` + EPI + `Stroke Rate`, data = le_data)
+summary(lm_model_rss_bic) # Adjusted R-squared:  0.739
+```
+
+
+```{r}
+plot1 <- ggplot(model_bo, aes(.resid)) + geom_histogram(bins = 50)
+plot2 <- ggplot(lm_model_rss_r2, aes(.resid)) + geom_histogram(bins = 50)
+plot3 <- ggplot(lm_model_rss_bic, aes(.resid)) + geom_histogram(bins = 50)
+plot4 <- ggplot(model_full, aes(.resid)) + geom_histogram(bins = 50)
+
+ggarrange(plot1, plot2, plot3, plot4)
+```
+
+```{r}
+shapiro.test(model_bo$residuals)
+```
+
+## Creating a New Variable
+
+```{r, warning=FALSE, message=FALSE}
+country_names <- read.csv("continent_country.csv", sep = ";", stringsAsFactors = FALSE)
+colnames(country_names) <- c("Continent_Name", "Country_Name")
+african_country <- country_names %>% filter(Continent_Name == "Africa")
+asian_country <- country_names %>% filter(Continent_Name == "Asia")
+europe_country <- country_names %>% filter(Continent_Name == "Europe")
+antarctica_country <- country_names %>% filter(Continent_Name == "Antarctica")
+oceania_country <- country_names %>% filter(Continent_Name == "Oceania")
+northamerica_country <- country_names %>% filter(Continent_Name == "North America")
+southamerica_country <- country_names %>% filter(Continent_Name == "South America")
+```
+
+```{r}
+african_country <- tolower(unlist(strsplit(african_country$Country_Name, ",")))
+asian_country <- tolower(unlist(strsplit(asian_country$Country_Name, ",")))
+europe_country <- tolower(unlist(strsplit(europe_country$Country_Name, ",")))
+antarctica_country <- tolower(unlist(strsplit(antarctica_country$Country_Name, ",")))
+oceania_country <- tolower(unlist(strsplit(oceania_country$Country_Name, ",")))
+northamerica_country <- tolower(unlist(strsplit(northamerica_country$Country_Name, ",")))
+southamerica_country <- tolower(unlist(strsplit(southamerica_country$Country_Name, ",")))
+```
+
+```{r}
+le_data <- le_data %>%
+  mutate(Continent = ifelse(Country %in% african_country, "Africa",
+                     ifelse(Country %in% asian_country, "Asia", 
+                     ifelse(Country %in% europe_country, "Europe",
+                     ifelse(Country %in% northamerica_country, "North America",
+                     ifelse(Country %in% southamerica_country, "South America", 
+                     ifelse(Country %in% oceania_country, "Oceania",
+                     ifelse(Country == "guernsey (channel islands, uk)", "Europe",
+                     ifelse(Country == "jersey (channel islands, uk)", "Europe",
+                     ifelse(Country == "saint helena, ascension and tristan da cunha (uk)", "Africa",
+                     "NONE"))))))))))
+```
+
+I am sure that Continent affect the life expectancy. Let's create a boxplot to ensure it.
+
+```{r}
+le_data %>%
+  ggplot(aes(x=Continent, y=`Life Expectancy`)) + geom_boxplot()
+```
+
+```{r}
+model_full_continent <- lm(`Life Expectancy` ~ ., data = le_data[,-1])
+summary(model_full_continent)
+```
+
+## Detecting outliers
+
+```{r, fig.width=10}
+par(mfrow = c(2,2))
+plot(model_full_continent)
+```
+
+
+```{r}
+
+```
+
+## Winsorizing Data
+We will replace extreme values by less extreme ones.
+https://en.wikipedia.org/wiki/Winsorizing
+https://www.rdocumentation.org/packages/DescTools/versions/0.99.32/topics/Winsorize
+
+```{r}
+data_winsorize <- le_data
+data_winsorize$`Dengue Cases` <- Winsorize(data_winsorize$`Dengue Cases`, probs = c(0.05, 0.95))
+data_winsorize$GDP <- Winsorize(data_winsorize$GDP, probs = c(0.05, 0.95))
+data_winsorize$`Pop Density` <- Winsorize(data_winsorize$`Pop Density`, probs = c(0.05, 0.95))
+data_winsorize$Population <- Winsorize(data_winsorize$Population, probs = c(0.05, 0.95))
+data_winsorize$Area <- Winsorize(data_winsorize$Area, probs = c(0.05, 0.95))
+```
+
+```{r, fig.width=12, warning=FALSE, message=FALSE}
+ggpairs(data_winsorize[,-1])
+```
+
+```{r}
+model_full <- lm(`Life Expectancy` ~ . ,data = data_winsorize[-64,-1])
+shapiro.test(model_full$residuals)
+```
+
+
+## Applying LOG transformation to all features
+
+```{r}
+log_data <- sqrt(data_winsorize[-c(66, 51, 75, 214, 158, 120),-c(1, 12, 14)])
+log_data <- cbind(log_data, data_winsorize[-c(66, 51, 75, 214, 158, 120),c(12, 14)])
+```
+
+```{r, fig.width=12, warning=FALSE, message=FALSE}
+ggpairs(log_data[,-1])
+```
+
+```{r, fig.width=12}
+cor_mat <- cor(log_data[, -c(11, 13)])
+corrplot(cor_mat, method="pie", type="lower", addCoef.col = "black")
+```
+
+Model with the most significant variable
+```{r}
+model_single_log <- lm(`Life Expectancy` ~ `Birth Rate`, data = log_data)
+summary(model_single_log) # R-squared:  0.5542
+```
+
+Model with all variable included
+```{r}
+model_full_log <- lm(`Life Expectancy` ~ ., data = log_data)
+summary(model_full_log) # Adjusted R-squared:  0.7279
+```
+
+## Feature Selection
+
+1. Stepwise Backward
+```{r}
+model_bw_log <- step(model_full_log, direction = "backward")
+summary(model_bw_log) # Adjusted R-squared:  0.7311
+```
+
+2. Stepwise Forward
+```{r}
+model_none_log <- lm(`Life Expectancy` ~ 1, data = log_data)
+model_fw_log <- step(model_none_log, scope = list(lower = model_none_log, upper = model_full_log), direction = "forward")
+summary(model_fw_log) # Adjusted R-squared:  0.7311
+```
+
+3. Stepwise Both
+```{r}
+model_bo_log <- step(model_none_log, scope = list(lower = model_none_log, upper = model_full_log), direction = "both")
+summary(model_bo_log) # Adjusted R-Squared = 0.7311
+```
+
+```{r}
+shapiro.test(model_bo_log$residuals)
+```
+
+```{r}
+hist(model_bo_log$residuals, breaks = 100)
+```
+
+```{r}
+log_data <- cbind(log_data, data_winsorize[-c(66, 51, 75, 214, 158, 120),1])
+
+```
+
+```{r}
+plot(model_bo_log)
+```
+
+```{r}
+hist(le_data$`Life Expectancy`)
+```
+
+
+```{r}
+car::vif(model_bo_log)
+```
+
+```{r}
+bptest(model_bo_log)
+```
+
